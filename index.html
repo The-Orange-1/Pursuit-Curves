@@ -1,0 +1,1043 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pure Pursuit Simulation</title>
+<style>
+  :root {
+    --bg: #f6f6f3;
+    --panel: #ffffff;
+    --ink: #161614;
+    --muted: #6b6b66;
+    --line: #e3e3df;
+    --line-strong: #cfcfc9;
+    --accent: #378ADD;
+    --accent-strong: #185FA5;
+    --warm: #EF9F27;
+    --warm-strong: #993C1D;
+    --grid: #ececea;
+    --grid-strong: #d8d8d4;
+    --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 8px 24px rgba(0,0,0,0.05);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #131312;
+      --panel: #1d1d1b;
+      --ink: #ececdf;
+      --muted: #8e8e86;
+      --line: #2c2c28;
+      --line-strong: #3a3a36;
+      --accent: #5aa6f0;
+      --accent-strong: #8fc1f5;
+      --warm: #f0a93b;
+      --warm-strong: #f6cd87;
+      --grid: #232321;
+      --grid-strong: #2e2e2b;
+      --shadow: 0 1px 2px rgba(0,0,0,0.4), 0 12px 32px rgba(0,0,0,0.35);
+    }
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { height: 100%; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    background: var(--bg);
+    color: var(--ink);
+    padding: 24px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  .app {
+    max-width: 1240px;
+    margin: 0 auto;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 320px;
+    gap: 20px;
+  }
+  @media (max-width: 920px) {
+    .app { grid-template-columns: 1fr; }
+  }
+
+  header {
+    grid-column: 1 / -1;
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 4px;
+    flex-wrap: wrap;
+  }
+  h1 { font-size: 22px; font-weight: 600; letter-spacing: -0.01em; }
+  .subtitle { font-size: 13px; color: var(--muted); }
+
+  .stage {
+    background: var(--panel);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+  .canvas-wrap {
+    position: relative;
+    width: 100%;
+    aspect-ratio: 17 / 10;
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--panel);
+    border: 1px solid var(--line);
+  }
+  canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+  .badge {
+    position: absolute;
+    top: 10px;
+    left: 12px;
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: color-mix(in srgb, var(--panel) 80%, transparent);
+    padding: 4px 8px;
+    border-radius: 6px;
+    backdrop-filter: blur(6px);
+  }
+  .badge.right { left: auto; right: 12px; }
+  .badge.zoom { top: auto; bottom: 10px; left: 12px; }
+
+  .stat-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+  }
+  @media (max-width: 560px) {
+    .stat-row { grid-template-columns: repeat(2, 1fr); }
+  }
+  .stat {
+    background: color-mix(in srgb, var(--ink) 5%, transparent);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 10px 12px;
+    text-align: center;
+  }
+  .stat .sv { font-variant-numeric: tabular-nums; font-size: 17px; font-weight: 600; letter-spacing: -0.01em; }
+  .stat .sl { font-size: 11px; color: var(--muted); margin-top: 3px; text-transform: uppercase; letter-spacing: 0.05em; }
+  .stat.status .sv { font-size: 14px; font-weight: 500; }
+
+  .panel {
+    background: var(--panel);
+    border-radius: 14px;
+    box-shadow: var(--shadow);
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    align-self: start;
+  }
+  .panel h2 {
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+  .btn-row { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  button {
+    appearance: none;
+    cursor: pointer;
+    padding: 9px 12px;
+    font-size: 13px;
+    font-weight: 500;
+    font-family: inherit;
+    background: var(--panel);
+    color: var(--ink);
+    border: 1px solid var(--line-strong);
+    border-radius: 9px;
+    transition: background 0.15s, transform 0.05s, border-color 0.15s;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+  }
+  button:hover { background: color-mix(in srgb, var(--ink) 5%, transparent); border-color: var(--ink); }
+  button:active { transform: scale(0.98); }
+  button.primary { background: var(--accent-strong); color: white; border-color: var(--accent-strong); }
+  button.primary:hover { background: color-mix(in srgb, var(--accent-strong) 85%, white); }
+
+  .ctrl { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+  .ctrl .row { display: flex; justify-content: space-between; align-items: baseline; }
+  .ctrl label { color: var(--muted); font-weight: 500; }
+  .ctrl .val { font-variant-numeric: tabular-nums; font-weight: 600; color: var(--ink); font-size: 13px; }
+  .ctrl input[type=range] { width: 100%; accent-color: var(--accent); }
+  .ctrl select {
+    width: 100%; font-size: 13px; font-family: inherit;
+    padding: 8px 10px; border: 1px solid var(--line-strong);
+    border-radius: 8px; background: var(--panel); color: var(--ink);
+  }
+
+  .toggles { display: grid; grid-template-columns: 1fr 1fr; gap: 6px 14px; }
+  .check {
+    display: flex; align-items: center; gap: 8px;
+    font-size: 13px; color: var(--ink);
+    cursor: pointer; user-select: none; padding: 2px 0;
+  }
+  .check input {
+    appearance: auto; accent-color: var(--accent);
+    cursor: pointer; width: 14px; height: 14px; margin: 0;
+  }
+
+  .legend {
+    font-size: 11px; color: var(--muted); line-height: 1.6;
+    padding-top: 8px; border-top: 1px dashed var(--line);
+  }
+  .legend strong { color: var(--ink); font-weight: 600; }
+  .legend .sw {
+    display: inline-block; width: 10px; height: 10px;
+    border-radius: 3px; vertical-align: middle; margin-right: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="app">
+  <header>
+    <div>
+      <h1>Pure pursuit simulation</h1>
+      <p class="subtitle">Pursuer holds a fixed angle α to the line of sight. The view follows both points. Drag P or T to reposition.</p>
+    </div>
+  </header>
+
+  <section class="stage">
+    <div class="canvas-wrap">
+      <canvas id="c"></canvas>
+      <span class="badge" id="badge-time">t = 0.00 s</span>
+      <span class="badge right" id="badge-fps">— fps</span>
+      <span class="badge zoom" id="badge-zoom">zoom 1.00×</span>
+    </div>
+
+    <div class="stat-row">
+      <div class="stat"><div class="sv" id="st-range">—</div><div class="sl">range</div></div>
+      <div class="stat"><div class="sv" id="st-los">—</div><div class="sl">LOS rate (rad/s)</div></div>
+      <div class="stat"><div class="sv" id="st-closing">—</div><div class="sl">closing speed</div></div>
+      <div class="stat status"><div class="sv" id="st-status">running</div><div class="sl">status</div></div>
+    </div>
+  </section>
+
+  <aside class="panel">
+    <div>
+      <h2>Controls</h2>
+      <div class="btn-row">
+        <button class="primary" id="pauseBtn" onclick="togglePause()">Pause</button>
+        <button onclick="resetSim()">Reset</button>
+        <button onclick="stepOnce()" style="grid-column: 1 / -1;">Step</button>
+      </div>
+    </div>
+
+    <div class="ctrl">
+      <div class="row"><label>Pursuit mode</label></div>
+      <select id="mode">
+        <option value="pure">Pure (α deviation)</option>
+        <option value="lead">Lead (geometric intercept)</option>
+        <option value="lag">Lag (trail by α)</option>
+      </select>
+    </div>
+    <div class="ctrl">
+      <div class="row"><label>Pursuer angle α</label><span class="val" id="alphaV">30°</span></div>
+      <input type="range" id="alpha" min="0" max="80" value="30" step="1">
+    </div>
+    <div class="ctrl">
+      <div class="row"><label>Pursuer velocity</label><span class="val" id="pVelV">180 px/s</span></div>
+      <input type="range" id="pVel" min="40" max="400" value="180" step="5">
+    </div>
+    <div class="ctrl">
+      <div class="row"><label>Target velocity</label><span class="val" id="tVelV">120 px/s</span></div>
+      <input type="range" id="tVel" min="0" max="320" value="120" step="5">
+    </div>
+    <div class="ctrl">
+      <div class="row"><label>Sim speed</label><span class="val" id="simSpeedV">1.0×</span></div>
+      <input type="range" id="simSpeed" min="25" max="200" value="100" step="5">
+    </div>
+    <div class="ctrl">
+      <div class="row"><label>Target path</label></div>
+      <select id="pattern">
+        <option value="straight">Straight line</option>
+        <option value="circle">Circle</option>
+        <option value="turn">Hard turn</option>
+        <option value="zigzag">Zigzag</option>
+        <option value="sine">Sine wave</option>
+        <option value="figure8">Figure 8</option>
+        <option value="square">Square loop</option>
+        <option value="escape">Escape spiral</option>
+        <option value="inspiral">In-spiral</option>
+        <option value="bounce">Bouncing</option>
+        <option value="stopgo">Stop and go</option>
+        <option value="random">Random walk</option>
+        <option value="static">Stationary</option>
+      </select>
+    </div>
+
+    <div>
+      <h2>Display</h2>
+      <div class="toggles">
+        <label class="check" data-toggle="grid"><input type="checkbox" checked> Grid</label>
+        <label class="check" data-toggle="trails"><input type="checkbox" checked> Trails</label>
+        <label class="check" data-toggle="los"><input type="checkbox" checked> Line of sight</label>
+        <label class="check" data-toggle="vec"><input type="checkbox" checked> Velocity</label>
+        <label class="check" data-toggle="arc"><input type="checkbox" checked> α arc</label>
+        <label class="check" data-toggle="ruler"><input type="checkbox"> Ruler</label>
+        <label class="check" data-toggle="tangents"><input type="checkbox"> Tangents</label>
+        <label class="check" data-toggle="follow"><input type="checkbox" checked> Follow cam</label>
+      </div>
+    </div>
+
+    <div class="legend">
+      <div><span class="sw" style="background:#378ADD"></span><strong>P</strong> = pursuer&nbsp; <span class="sw" style="background:#EF9F27"></span><strong>T</strong> = target</div>
+      <div>The camera auto-frames both points. Toggle "Follow cam" off to lock the view.</div>
+      <div><strong>Pure</strong>: heading offset by constant α from LOS — the classical curve.<br>
+        <strong>Lead</strong>: aim at the geometric intercept point given target velocity.<br>
+        <strong>Lag</strong>: aim α behind the target along its motion vector.</div>
+    </div>
+  </aside>
+</div>
+
+<script>
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+let W = 680, H = 400;
+let DPR = Math.max(1, window.devicePixelRatio || 1);
+
+function fitCanvas() {
+  const rect = canvas.getBoundingClientRect();
+  W = Math.round(rect.width);
+  H = Math.round(rect.height);
+  DPR = Math.max(1, window.devicePixelRatio || 1);
+  canvas.width = Math.round(W * DPR);
+  canvas.height = Math.round(H * DPR);
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+
+let paused = false;
+let pTrail = [], tTrail = [];
+let simT = 0, captured = false, escaped = false;
+let prevLosAngle = null;
+let prevRange = null;
+let state = {};
+let last = null;
+let fpsAcc = 0, fpsFrames = 0, fpsLast = 0;
+
+let targetT = 0;
+let tOrigin = { x: 0, y: 0 };
+let tStateful = {};
+
+let dragging = null;
+let hovered = null;
+
+// Camera (world-to-screen). screen = (world - cam.center) * cam.zoom + canvasCenter
+let cam = { cx: 0, cy: 0, zoom: 1 };
+let camGoal = { cx: 0, cy: 0, zoom: 1 };
+
+const opts = { grid: true, trails: true, los: true, vec: true, arc: true, ruler: false, tangents: false, follow: true };
+
+function getParams() {
+  return {
+    alpha: +document.getElementById('alpha').value * Math.PI / 180,
+    pVel: +document.getElementById('pVel').value,
+    tVel: +document.getElementById('tVel').value,
+    pattern: document.getElementById('pattern').value,
+    simSpeed: +document.getElementById('simSpeed').value / 100,
+    mode: document.getElementById('mode').value,
+  };
+}
+
+function pursuerVelAngle(mode, alpha, pVel) {
+  const dx = state.tx - state.px;
+  const dy = state.ty - state.py;
+  const losAngle = Math.atan2(dy, dx);
+  const tvx = state.tvx || 0, tvy = state.tvy || 0;
+  const tvMag = Math.hypot(tvx, tvy);
+
+  if (mode === 'lead' && tvMag > 1e-3) {
+    // Solve |T - P + vT * t| = pVel * t for smallest positive t
+    const a = tvx * tvx + tvy * tvy - pVel * pVel;
+    const b = 2 * (dx * tvx + dy * tvy);
+    const c = dx * dx + dy * dy;
+    let t = -1;
+    if (Math.abs(a) < 1e-6) {
+      if (Math.abs(b) > 1e-6) t = -c / b;
+    } else {
+      const disc = b * b - 4 * a * c;
+      if (disc >= 0) {
+        const sq = Math.sqrt(disc);
+        const t1 = (-b - sq) / (2 * a);
+        const t2 = (-b + sq) / (2 * a);
+        const cands = [t1, t2].filter(v => v > 0);
+        if (cands.length) t = Math.min.apply(null, cands);
+      }
+    }
+    if (t > 0) {
+      const aimX = state.tx + tvx * t;
+      const aimY = state.ty + tvy * t;
+      return Math.atan2(aimY - state.py, aimX - state.px);
+    }
+    // Pursuer slower or no positive root: fall back to pure pursuit
+    return losAngle;
+  }
+
+  if (mode === 'lag' && tvMag > 1e-3) {
+    // Aim point behind target along its motion. Lag distance scales with α and range.
+    const range = Math.hypot(dx, dy);
+    const lagDist = range * Math.tan(alpha);
+    const ux = tvx / tvMag, uy = tvy / tvMag;
+    const aimX = state.tx - ux * lagDist;
+    const aimY = state.ty - uy * lagDist;
+    return Math.atan2(aimY - state.py, aimX - state.px);
+  }
+
+  // Pure / classical deviation
+  return losAngle - alpha;
+}
+
+// ===== Path definitions =====
+function paramPos(t, pattern) {
+  switch (pattern) {
+    case 'straight': return { x: t * 60, y: 0 };
+    case 'circle': {
+      const r = 130, w = 1.0;
+      return { x: r * Math.sin(t * w), y: r - r * Math.cos(t * w) };
+    }
+    case 'turn': {
+      if (t < 1.8) return { x: t * 60, y: 0 };
+      const dt = t - 1.8;
+      return { x: 1.8 * 60 + dt * 25, y: dt * 60 };
+    }
+    case 'zigzag': return { x: t * 50, y: Math.sin(t * 2.2) * 80 };
+    case 'sine': return { x: t * 60, y: Math.sin(t * 1.5) * 70 };
+    case 'figure8': return { x: 140 * Math.sin(t * 0.9), y: 80 * Math.sin(t * 1.8) };
+    case 'square': {
+      const period = 4, side = 180;
+      const u = ((t % period) + period) % period;
+      let x, y;
+      if (u < 1) { x = u * side; y = 0; }
+      else if (u < 2) { x = side; y = (u - 1) * side; }
+      else if (u < 3) { x = side - (u - 2) * side; y = side; }
+      else { x = 0; y = side - (u - 3) * side; }
+      return { x: x - side / 2, y: y - side / 2 };
+    }
+    case 'escape': {
+      const r = 20 + t * 18;
+      return { x: r * Math.cos(t * 0.9), y: r * Math.sin(t * 0.9) };
+    }
+    case 'inspiral': {
+      const r = Math.max(8, 200 - t * 18);
+      return { x: r * Math.cos(t * 1.1), y: r * Math.sin(t * 1.1) };
+    }
+    default: return { x: 0, y: 0 };
+  }
+}
+
+function paramSpeed(t, pattern) {
+  const eps = 0.01;
+  const a = paramPos(t, pattern);
+  const b = paramPos(t + eps, pattern);
+  return Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2) / eps;
+}
+
+function isParametric(pattern) {
+  return !['bounce', 'random', 'stopgo', 'static'].includes(pattern);
+}
+
+function patternStart(pattern) {
+  if (!isParametric(pattern)) return { x: W * 0.6, y: H * 0.4 };
+  const p0 = paramPos(0, pattern);
+  return { x: W * 0.5 - p0.x, y: H * 0.4 - p0.y };
+}
+
+function targetFromParam(t, pattern, origin) {
+  const p = paramPos(t, pattern);
+  const p0 = paramPos(0, pattern);
+  return { x: p.x - p0.x + origin.x, y: p.y - p0.y + origin.y };
+}
+
+// ===== Camera =====
+function computeCamGoal() {
+  if (!opts.follow) {
+    camGoal.cx = W / 2;
+    camGoal.cy = H / 2;
+    camGoal.zoom = 1;
+    return;
+  }
+  const midx = (state.px + state.tx) / 2;
+  const midy = (state.py + state.ty) / 2;
+  const dx = Math.abs(state.tx - state.px);
+  const dy = Math.abs(state.ty - state.py);
+  const margin = 90;     // world-space padding around the pair
+  const minSpan = 320;   // never zoom in past this world width
+  const needW = Math.max(dx + margin * 2, minSpan);
+  const needH = Math.max(dy + margin * 2, minSpan * (H / W));
+  let zoom = Math.min(W / needW, H / needH);
+  zoom = Math.max(0.18, Math.min(1.0, zoom));
+  camGoal.cx = midx;
+  camGoal.cy = midy;
+  camGoal.zoom = zoom;
+}
+
+function smoothCamera(realDt) {
+  const k = 1 - Math.exp(-realDt * 3.5);
+  cam.cx += (camGoal.cx - cam.cx) * k;
+  cam.cy += (camGoal.cy - cam.cy) * k;
+  cam.zoom += (camGoal.zoom - cam.zoom) * k;
+}
+
+function snapCamera() {
+  computeCamGoal();
+  cam.cx = camGoal.cx;
+  cam.cy = camGoal.cy;
+  cam.zoom = camGoal.zoom;
+}
+
+function w2s(wx, wy) {
+  return {
+    x: (wx - cam.cx) * cam.zoom + W / 2,
+    y: (wy - cam.cy) * cam.zoom + H / 2,
+  };
+}
+
+function s2w(sx, sy) {
+  return {
+    x: (sx - W / 2) / cam.zoom + cam.cx,
+    y: (sy - H / 2) / cam.zoom + cam.cy,
+  };
+}
+
+// ===== Sim =====
+function resetSim() {
+  const { pattern } = getParams();
+  const start = patternStart(pattern);
+  simT = 0;
+  targetT = 0;
+  captured = false;
+  escaped = false;
+  prevLosAngle = null;
+  prevRange = null;
+  pTrail = [];
+  tTrail = [];
+  tOrigin = { x: start.x, y: start.y };
+  const heading = -0.5;
+  tStateful = { heading, vx: Math.cos(heading), vy: Math.sin(heading), phase: 0 };
+  state = { px: 60, py: H * 0.75, tx: start.x, ty: start.y, tvx: 0, tvy: 0, velAngle: 0 };
+  const s = document.getElementById('st-status');
+  s.textContent = 'paused'; s.style.color = '';
+  paused = true;
+  document.getElementById('pauseBtn').textContent = 'Play';
+  last = null;
+  snapCamera();
+}
+
+function updateTarget(dt, tVel, pattern) {
+  if (dragging === 't') return;
+  if (isParametric(pattern)) {
+    const localSpd = Math.max(paramSpeed(targetT, pattern), 1);
+    targetT += (tVel / localSpd) * dt;
+    const p = targetFromParam(targetT, pattern, tOrigin);
+    state.tx = p.x;
+    state.ty = p.y;
+  } else if (pattern === 'bounce') {
+    state.tx += tStateful.vx * tVel * dt;
+    state.ty += tStateful.vy * tVel * dt;
+    // Bounce inside the camera-anchored region near tOrigin
+    const halfW = 280, halfH = 200;
+    if (state.tx < tOrigin.x - halfW) { state.tx = tOrigin.x - halfW; tStateful.vx = Math.abs(tStateful.vx); }
+    else if (state.tx > tOrigin.x + halfW) { state.tx = tOrigin.x + halfW; tStateful.vx = -Math.abs(tStateful.vx); }
+    if (state.ty < tOrigin.y - halfH) { state.ty = tOrigin.y - halfH; tStateful.vy = Math.abs(tStateful.vy); }
+    else if (state.ty > tOrigin.y + halfH) { state.ty = tOrigin.y + halfH; tStateful.vy = -Math.abs(tStateful.vy); }
+  } else if (pattern === 'random') {
+    tStateful.heading += (Math.random() - 0.5) * 4 * dt;
+    state.tx += Math.cos(tStateful.heading) * tVel * dt;
+    state.ty += Math.sin(tStateful.heading) * tVel * dt;
+  } else if (pattern === 'stopgo') {
+    tStateful.phase += dt;
+    const scale = Math.max(0, Math.sin(tStateful.phase * 1.6));
+    state.tx += scale * tVel * dt;
+  }
+  // static: do nothing
+}
+
+function step(dt) {
+  if (captured || escaped) return;
+  const { alpha, pVel, tVel, pattern, mode } = getParams();
+
+  simT += dt;
+  const prevTx = state.tx, prevTy = state.ty;
+  updateTarget(dt, tVel, pattern);
+  if (dt > 0) {
+    state.tvx = (state.tx - prevTx) / dt;
+    state.tvy = (state.ty - prevTy) / dt;
+  }
+
+  const velAngle = pursuerVelAngle(mode, alpha, pVel);
+  state.velAngle = velAngle;
+  if (dragging !== 'p') {
+    state.px += pVel * Math.cos(velAngle) * dt;
+    state.py += pVel * Math.sin(velAngle) * dt;
+  }
+
+  pTrail.push({ x: state.px, y: state.py });
+  tTrail.push({ x: state.tx, y: state.ty });
+  if (pTrail.length > 2000) { pTrail.shift(); tTrail.shift(); }
+
+  const dx = state.tx - state.px;
+  const dy = state.ty - state.py;
+  const range = Math.sqrt(dx * dx + dy * dy);
+  const losAngle = Math.atan2(dy, dx);
+
+  let losRate = 0;
+  if (prevLosAngle !== null) {
+    let dLos = losAngle - prevLosAngle;
+    while (dLos > Math.PI) dLos -= 2 * Math.PI;
+    while (dLos < -Math.PI) dLos += 2 * Math.PI;
+    losRate = dLos / dt;
+  }
+  prevLosAngle = losAngle;
+
+  let closing = 0;
+  if (prevRange !== null) closing = (prevRange - range) / dt;
+  prevRange = range;
+
+  document.getElementById('st-range').textContent = Math.round(range) + ' px';
+  document.getElementById('st-los').textContent = losRate.toFixed(2);
+  document.getElementById('st-closing').textContent = Math.round(closing) + ' px/s';
+  document.getElementById('badge-time').textContent = 't = ' + simT.toFixed(2) + ' s';
+
+  if (range < 14) {
+    captured = true;
+    const s = document.getElementById('st-status');
+    s.textContent = 'captured'; s.style.color = '#2a7a2a';
+  }
+  if (range > 4000) {
+    escaped = true;
+    const s = document.getElementById('st-status');
+    s.textContent = 'escaped'; s.style.color = '#c0392b';
+  }
+}
+
+// ===== Drawing =====
+function gridColor(weak) {
+  const css = getComputedStyle(document.documentElement);
+  return css.getPropertyValue(weak ? '--grid' : '--grid-strong').trim();
+}
+
+function drawGrid() {
+  if (!opts.grid) return;
+  // Visible world rect
+  const halfW = (W / 2) / cam.zoom;
+  const halfH = (H / 2) / cam.zoom;
+  const left = cam.cx - halfW, right = cam.cx + halfW;
+  const top = cam.cy - halfH, bottom = cam.cy + halfH;
+
+  // Adaptive minor spacing so it never gets too dense when zoomed out
+  let minor = 20, major = 100;
+  const screenMinor = minor * cam.zoom;
+  if (screenMinor < 8) { minor = 100; major = 500; }
+  else if (screenMinor < 14) { minor = 50; major = 250; }
+
+  const startMinor = Math.floor(left / minor) * minor;
+  const startMajor = Math.floor(left / major) * major;
+  const startMinorY = Math.floor(top / minor) * minor;
+  const startMajorY = Math.floor(top / major) * major;
+
+  ctx.save();
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = gridColor(true);
+  ctx.beginPath();
+  for (let wx = startMinor; wx <= right; wx += minor) {
+    if (Math.abs(((wx / major) % 1)) < 1e-6) continue;
+    const sx = w2s(wx, 0).x;
+    ctx.moveTo(sx + 0.5, 0);
+    ctx.lineTo(sx + 0.5, H);
+  }
+  for (let wy = startMinorY; wy <= bottom; wy += minor) {
+    if (Math.abs(((wy / major) % 1)) < 1e-6) continue;
+    const sy = w2s(0, wy).y;
+    ctx.moveTo(0, sy + 0.5);
+    ctx.lineTo(W, sy + 0.5);
+  }
+  ctx.stroke();
+
+  ctx.strokeStyle = gridColor(false);
+  ctx.beginPath();
+  for (let wx = startMajor; wx <= right; wx += major) {
+    const sx = w2s(wx, 0).x;
+    ctx.moveTo(sx + 0.5, 0);
+    ctx.lineTo(sx + 0.5, H);
+  }
+  for (let wy = startMajorY; wy <= bottom; wy += major) {
+    const sy = w2s(0, wy).y;
+    ctx.moveTo(0, sy + 0.5);
+    ctx.lineTo(W, sy + 0.5);
+  }
+  ctx.stroke();
+
+  ctx.fillStyle = gridColor(false);
+  ctx.font = '10px system-ui, sans-serif';
+  ctx.textBaseline = 'top';
+  for (let wx = startMajor; wx <= right; wx += major) {
+    const sx = w2s(wx, 0).x;
+    if (sx > 4 && sx < W - 4) ctx.fillText(Math.round(wx), sx + 3, 3);
+  }
+  ctx.textBaseline = 'alphabetic';
+  for (let wy = startMajorY; wy <= bottom; wy += major) {
+    const sy = w2s(0, wy).y;
+    if (sy > 12 && sy < H - 2) ctx.fillText(Math.round(wy), 3, sy - 3);
+  }
+  ctx.restore();
+}
+
+function drawTrail(trail, color, alpha) {
+  if (!opts.trails || trail.length < 2) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = Math.max(1.2, 2 * Math.min(cam.zoom, 1));
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.globalAlpha = alpha;
+  ctx.beginPath();
+  const p0 = w2s(trail[0].x, trail[0].y);
+  ctx.moveTo(p0.x, p0.y);
+  for (let i = 1; i < trail.length; i++) {
+    const p = w2s(trail[i].x, trail[i].y);
+    ctx.lineTo(p.x, p.y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawArrowScreen(x1, y1, x2, y2, color, width = 2) {
+  const ang = Math.atan2(y2 - y1, x2 - x1);
+  const len = Math.sqrt((x2 - x1) ** 2 + (y2 - y1) ** 2);
+  if (len < 2) return;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = width;
+  ctx.globalAlpha = 0.9;
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  ctx.moveTo(x1, y1);
+  ctx.lineTo(x2, y2);
+  ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(x2 - 10 * Math.cos(ang - 0.4), y2 - 10 * Math.sin(ang - 0.4));
+  ctx.lineTo(x2, y2);
+  ctx.lineTo(x2 - 10 * Math.cos(ang + 0.4), y2 - 10 * Math.sin(ang + 0.4));
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawAngleArcScreen(sx, sy, losAngle, velAngle) {
+  if (!opts.arc) return;
+  let dev = velAngle - losAngle;
+  while (dev > Math.PI) dev -= 2 * Math.PI;
+  while (dev < -Math.PI) dev += 2 * Math.PI;
+  if (Math.abs(dev) < 0.02) return;
+  ctx.save();
+  ctx.strokeStyle = '#D85A30';
+  ctx.lineWidth = 2;
+  ctx.globalAlpha = 0.9;
+  ctx.beginPath();
+  ctx.arc(sx, sy, 32, losAngle, losAngle + dev, dev < 0);
+  ctx.stroke();
+  ctx.fillStyle = '#993C1D';
+  ctx.font = '600 12px system-ui, sans-serif';
+  const midA = losAngle + dev / 2;
+  const deg = Math.round(dev * 180 / Math.PI);
+  ctx.fillText(deg + '°', sx + 46 * Math.cos(midA) - 8, sy + 46 * Math.sin(midA) + 4);
+  ctx.restore();
+}
+
+function drawRulerScreen(px, py, tx, ty, range) {
+  if (!opts.ruler) return;
+  ctx.save();
+  ctx.strokeStyle = '#888';
+  ctx.globalAlpha = 0.7;
+  ctx.lineWidth = 1;
+  const ang = Math.atan2(ty - py, tx - px);
+  const nx = -Math.sin(ang), ny = Math.cos(ang);
+  const off = 14;
+  ctx.beginPath();
+  ctx.moveTo(px + nx * off, py + ny * off);
+  ctx.lineTo(tx + nx * off, ty + ny * off);
+  ctx.moveTo(px + nx * (off - 4), py + ny * (off - 4));
+  ctx.lineTo(px + nx * (off + 4), py + ny * (off + 4));
+  ctx.moveTo(tx + nx * (off - 4), ty + ny * (off - 4));
+  ctx.lineTo(tx + nx * (off + 4), ty + ny * (off + 4));
+  ctx.stroke();
+  ctx.fillStyle = '#666';
+  ctx.font = '600 11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  const mx = (px + tx) / 2 + nx * (off + 12);
+  const my = (py + ty) / 2 + ny * (off + 12);
+  ctx.fillText(Math.round(range) + ' px', mx, my);
+  ctx.restore();
+}
+
+function drawTangentLine(sx, sy, angle, color, alpha) {
+  const len = Math.max(W, H) * 2;
+  const dx = Math.cos(angle) * len;
+  const dy = Math.sin(angle) * len;
+  ctx.save();
+  ctx.strokeStyle = color;
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = alpha;
+  ctx.setLineDash([3, 5]);
+  ctx.beginPath();
+  ctx.moveTo(sx - dx, sy - dy);
+  ctx.lineTo(sx + dx, sy + dy);
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawAgentScreen(x, y, color, ringColor, label, labelColor, radius, highlight) {
+  ctx.save();
+  if (highlight) {
+    ctx.beginPath();
+    ctx.arc(x, y, radius + 6, 0, Math.PI * 2);
+    ctx.strokeStyle = color;
+    ctx.globalAlpha = 0.35;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.fillStyle = color;
+  ctx.globalAlpha = 0.95;
+  ctx.beginPath();
+  ctx.arc(x, y, radius, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = ringColor;
+  ctx.globalAlpha = 0.5;
+  ctx.lineWidth = 1;
+  ctx.stroke();
+  ctx.fillStyle = labelColor;
+  ctx.globalAlpha = 1;
+  ctx.font = '600 11px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(label, x, y);
+  ctx.restore();
+}
+
+function render() {
+  ctx.clearRect(0, 0, W, H);
+  drawGrid();
+  drawTrail(tTrail, '#EF9F27', 0.55);
+  drawTrail(pTrail, '#378ADD', 0.65);
+
+  const { alpha, mode, pVel } = getParams();
+  const { px: wpx, py: wpy, tx: wtx, ty: wty } = state;
+  const sp = w2s(wpx, wpy);
+  const st = w2s(wtx, wty);
+  const dxs = st.x - sp.x, dys = st.y - sp.y;
+  const range = Math.hypot(wtx - wpx, wty - wpy);
+  const losAngle = Math.atan2(dys, dxs);
+  // Recompute velAngle from current state so it stays accurate while paused / dragging
+  const velAngle = pursuerVelAngle(mode, alpha, pVel);
+
+  if (opts.los && Math.hypot(dxs, dys) > 20) {
+    ctx.save();
+    ctx.setLineDash([5, 4]);
+    ctx.globalAlpha = 0.45;
+    ctx.strokeStyle = '#888';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(sp.x, sp.y);
+    ctx.lineTo(st.x, st.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  if (opts.tangents) {
+    drawTangentLine(sp.x, sp.y, velAngle, '#185FA5', 0.4);
+    const tvMag = Math.hypot(state.tvx, state.tvy);
+    if (tvMag > 0.5) {
+      const tvAng = Math.atan2(state.tvy, state.tvx);
+      drawTangentLine(st.x, st.y, tvAng, '#D85A30', 0.4);
+    }
+  }
+
+  drawRulerScreen(sp.x, sp.y, st.x, st.y, range);
+  if (opts.vec) {
+    drawArrowScreen(sp.x, sp.y, sp.x + 52 * Math.cos(velAngle), sp.y + 52 * Math.sin(velAngle), '#185FA5', 2.5);
+  }
+  drawAngleArcScreen(sp.x, sp.y, losAngle, velAngle);
+
+  drawAgentScreen(st.x, st.y, '#EF9F27', '#7a4a06', 'T', '#3b2105', 11, hovered === 't' || dragging === 't');
+  drawAgentScreen(sp.x, sp.y, '#378ADD', '#0e3e72', 'P', '#E6F1FB', 9, hovered === 'p' || dragging === 'p');
+
+  document.getElementById('badge-zoom').textContent = 'zoom ' + cam.zoom.toFixed(2) + '×';
+}
+
+function loop(ts) {
+  const realDt = last !== null ? Math.min((ts - last) / 1000, 0.1) : 0;
+  if (!paused) {
+    if (last !== null) {
+      const { simSpeed } = getParams();
+      const dt = realDt * simSpeed;
+      if (!captured && !escaped) step(dt);
+    }
+    last = ts;
+  } else {
+    last = null;
+  }
+
+  computeCamGoal();
+  smoothCamera(realDt || 1 / 60);
+  render();
+
+  fpsFrames++;
+  if (fpsLast) fpsAcc += ts - fpsLast;
+  fpsLast = ts;
+  if (fpsAcc > 500) {
+    const fpsValue = Math.round(1000 * fpsFrames / fpsAcc);
+    document.getElementById('badge-fps').textContent = fpsValue + ' fps';
+    fpsFrames = 0; fpsAcc = 0;
+  }
+
+  requestAnimationFrame(loop);
+}
+
+function togglePause() {
+  paused = !paused;
+  document.getElementById('pauseBtn').textContent = paused ? 'Play' : 'Pause';
+  if (!paused) {
+    last = null;
+    if (!captured && !escaped) {
+      const s = document.getElementById('st-status');
+      s.textContent = 'running'; s.style.color = '';
+    }
+  } else {
+    if (!captured && !escaped) {
+      const s = document.getElementById('st-status');
+      s.textContent = 'paused'; s.style.color = '';
+    }
+  }
+}
+
+function stepOnce() {
+  if (!paused) {
+    paused = true;
+    document.getElementById('pauseBtn').textContent = 'Play';
+  }
+  step(1 / 60);
+}
+
+// ===== Listeners =====
+document.getElementById('alpha').addEventListener('input', e => {
+  document.getElementById('alphaV').textContent = e.target.value + '°';
+});
+document.getElementById('pVel').addEventListener('input', e => {
+  document.getElementById('pVelV').textContent = e.target.value + ' px/s';
+});
+document.getElementById('tVel').addEventListener('input', e => {
+  document.getElementById('tVelV').textContent = e.target.value + ' px/s';
+});
+document.getElementById('simSpeed').addEventListener('input', e => {
+  document.getElementById('simSpeedV').textContent = (+e.target.value / 100).toFixed(1) + '×';
+});
+document.getElementById('pattern').addEventListener('change', resetSim);
+
+document.querySelectorAll('.check input').forEach(input => {
+  input.addEventListener('change', () => {
+    const key = input.parentElement.dataset.toggle;
+    opts[key] = input.checked;
+  });
+});
+
+window.addEventListener('keydown', e => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
+  if (e.code === 'Space') { e.preventDefault(); togglePause(); }
+  else if (e.key.toLowerCase() === 'r') resetSim();
+  else if (e.key.toLowerCase() === 's') stepOnce();
+});
+
+window.addEventListener('resize', () => { fitCanvas(); snapCamera(); });
+
+// ===== Drag =====
+function pointerWorld(e) {
+  const rect = canvas.getBoundingClientRect();
+  const cx = (e.touches ? e.touches[0].clientX : e.clientX) - rect.left;
+  const cy = (e.touches ? e.touches[0].clientY : e.clientY) - rect.top;
+  const sx = cx * (W / rect.width);
+  const sy = cy * (H / rect.height);
+  return s2w(sx, sy);
+}
+
+function hitTest(wpos) {
+  // Hit radius in screen pixels — convert to world.
+  const hitR = 18 / cam.zoom;
+  const dT = Math.hypot(wpos.x - state.tx, wpos.y - state.ty);
+  const dP = Math.hypot(wpos.x - state.px, wpos.y - state.py);
+  if (dT < hitR && dT <= dP) return 't';
+  if (dP < hitR) return 'p';
+  return null;
+}
+
+function rebaseTargetPathFromCurrent() {
+  const { pattern } = getParams();
+  if (isParametric(pattern)) {
+    targetT = 0;
+    tOrigin = { x: state.tx, y: state.ty };
+  } else {
+    tOrigin = { x: state.tx, y: state.ty };
+  }
+  captured = false; escaped = false;
+  prevRange = null;
+  const s = document.getElementById('st-status');
+  if (s.textContent !== 'running') { s.textContent = 'running'; s.style.color = ''; }
+}
+
+canvas.addEventListener('mousedown', e => {
+  const wpos = pointerWorld(e);
+  const hit = hitTest(wpos);
+  if (hit) { dragging = hit; e.preventDefault(); canvas.style.cursor = 'grabbing'; }
+});
+canvas.addEventListener('mousemove', e => {
+  const wpos = pointerWorld(e);
+  if (dragging === 'p') { state.px = wpos.x; state.py = wpos.y; captured = false; escaped = false; }
+  else if (dragging === 't') { state.tx = wpos.x; state.ty = wpos.y; captured = false; escaped = false; }
+  else {
+    hovered = hitTest(wpos);
+    canvas.style.cursor = hovered ? 'grab' : 'default';
+  }
+});
+window.addEventListener('mouseup', () => {
+  if (dragging === 't') rebaseTargetPathFromCurrent();
+  if (dragging) {
+    dragging = null;
+    canvas.style.cursor = hovered ? 'grab' : 'default';
+  }
+});
+
+canvas.addEventListener('touchstart', e => {
+  const wpos = pointerWorld(e);
+  const hit = hitTest(wpos);
+  if (hit) { dragging = hit; e.preventDefault(); }
+}, { passive: false });
+canvas.addEventListener('touchmove', e => {
+  if (!dragging) return;
+  const wpos = pointerWorld(e);
+  if (dragging === 'p') { state.px = wpos.x; state.py = wpos.y; captured = false; escaped = false; }
+  else if (dragging === 't') { state.tx = wpos.x; state.ty = wpos.y; captured = false; escaped = false; }
+  e.preventDefault();
+}, { passive: false });
+canvas.addEventListener('touchend', () => {
+  if (dragging === 't') rebaseTargetPathFromCurrent();
+  dragging = null;
+});
+
+fitCanvas();
+resetSim();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
