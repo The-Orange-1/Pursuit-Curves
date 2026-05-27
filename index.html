@@ -239,7 +239,7 @@
     <div class="ctrl">
       <div class="row"><label>Pursuit mode</label></div>
       <select id="mode">
-        <option value="pure">Pure (direct pursuit)</option>
+        <option value="pure">Pure pursuit</option>
         <option value="lead">Lead (geometric intercept)</option>
         <option value="lag">Lag (drag carrot behind)</option>
         <option value="lagdirect">Lag (direct — aim at target)</option>
@@ -274,7 +274,6 @@
         <option value="escape">Escape spiral</option>
         <option value="inspiral">In-spiral</option>
         <option value="bounce">Bouncing</option>
-        <option value="stopgo">Stop and go</option>
         <option value="random">Random walk</option>
       </select>
     </div>
@@ -296,7 +295,7 @@
     <div class="legend">
       <div><span class="sw" style="background:#378ADD"></span><strong>P</strong> = pursuer&nbsp; <span class="sw" style="background:#EF9F27"></span><strong>T</strong> = target</div>
       <div>The camera auto-frames both points. Toggle "Follow cam" off to lock the view.</div>
-      <div><strong>Pure</strong> (α = 0 ⇒ direct pursuit): heading offset by α from LOS — the classical curve.<br>
+      <div><strong>Pure</strong>: heading offset by α from LOS — the classical pursuit curve.<br>
         <strong>Lead</strong>: aim at the geometric intercept point given current target velocity.<br>
         <strong>Lag</strong>: aim at a draggable carrot behind the target along its motion.<br>
         <strong>Lag (direct)</strong>: tangent always points at T — the pursuer naturally falls behind on curving paths.</div>
@@ -461,7 +460,7 @@ function paramSpeed(t, pattern) {
 }
 
 function isParametric(pattern) {
-  return !['bounce', 'random', 'stopgo'].includes(pattern);
+  return !['bounce', 'random'].includes(pattern);
 }
 
 function patternStart(pattern) {
@@ -561,7 +560,6 @@ function resetSim() {
     state.tvx = Math.cos(tStateful.heading) * tVel;
     state.tvy = Math.sin(tStateful.heading) * tVel;
   }
-  // stopgo starts at rest (sin(0) = 0); leaves tvx/tvy = 0 → carrot hides until motion begins
 
   const s = document.getElementById('st-status');
   s.textContent = 'paused'; s.style.color = '';
@@ -592,10 +590,6 @@ function updateTarget(dt, tVel, pattern) {
     tStateful.heading += (Math.random() - 0.5) * 4 * dt;
     state.tx += Math.cos(tStateful.heading) * tVel * dt;
     state.ty += Math.sin(tStateful.heading) * tVel * dt;
-  } else if (pattern === 'stopgo') {
-    tStateful.phase += dt;
-    const scale = Math.max(0, Math.sin(tStateful.phase * 1.6));
-    state.tx += scale * tVel * dt;
   }
 }
 
