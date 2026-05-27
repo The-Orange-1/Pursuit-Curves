@@ -239,12 +239,13 @@
     <div class="ctrl">
       <div class="row"><label>Pursuit mode</label></div>
       <select id="mode">
-        <option value="pure">Pure (α deviation)</option>
+        <option value="pure">Pure (direct pursuit)</option>
         <option value="lead">Lead (geometric intercept)</option>
-        <option value="lag">Lag (trail by α)</option>
+        <option value="lag">Lag (drag carrot behind)</option>
+        <option value="lagdirect">Lag (direct — aim at target)</option>
       </select>
     </div>
-    <div class="ctrl">
+    <div class="ctrl" id="alphaCtrl">
       <div class="row"><label>Pursuer angle α</label><span class="val" id="alphaV">30°</span></div>
       <input type="range" id="alpha" min="0" max="80" value="30" step="1">
     </div>
@@ -275,7 +276,6 @@
         <option value="bounce">Bouncing</option>
         <option value="stopgo">Stop and go</option>
         <option value="random">Random walk</option>
-        <option value="static">Stationary</option>
       </select>
     </div>
 
@@ -296,9 +296,10 @@
     <div class="legend">
       <div><span class="sw" style="background:#378ADD"></span><strong>P</strong> = pursuer&nbsp; <span class="sw" style="background:#EF9F27"></span><strong>T</strong> = target</div>
       <div>The camera auto-frames both points. Toggle "Follow cam" off to lock the view.</div>
-      <div><strong>Pure</strong>: heading offset by constant α from LOS — the classical curve.<br>
-        <strong>Lead</strong>: aim at the geometric intercept point given target velocity.<br>
-        <strong>Lag</strong>: aim α behind the target along its motion vector.</div>
+      <div><strong>Pure</strong> (α = 0 ⇒ direct pursuit): heading offset by α from LOS — the classical curve.<br>
+        <strong>Lead</strong>: aim at the geometric intercept point given current target velocity.<br>
+        <strong>Lag</strong>: aim at a draggable carrot behind the target along its motion.<br>
+        <strong>Lag (direct)</strong>: tangent always points at T — the pursuer naturally falls behind on curving paths.</div>
     </div>
   </aside>
 </div>
@@ -336,6 +337,9 @@ let tStateful = {};
 let dragging = null;
 let hovered = null;
 
+// Distance from T to the lead/lag aim "carrot", in world px.
+let aimOffset = 120;
+
 // Camera (world-to-screen). screen = (world - cam.center) * cam.zoom + canvasCenter
 let cam = { cx: 0, cy: 0, zoom: 1 };
 let camGoal = { cx: 0, cy: 0, zoom: 1 };
@@ -353,6 +357,19 @@ function getParams() {
   };
 }
 
+function carrotPos() {
+  const mode = document.getElementById('mode').value;
+  if (mode !== 'lag') return null;
+  const tvx = state.tvx || 0, tvy = state.tvy || 0;
+  const tvMag = Math.hypot(tvx, tvy);
+  if (tvMag < 1e-3) return null;
+  const ux = tvx / tvMag, uy = tvy / tvMag;
+  return {
+    x: state.tx - aimOffset * ux,
+    y: state.ty - aimOffset * uy,
+  };
+}
+
 function pursuerVelAngle(mode, alpha, pVel) {
   const dx = state.tx - state.px;
   const dy = state.ty - state.py;
@@ -361,7 +378,7 @@ function pursuerVelAngle(mode, alpha, pVel) {
   const tvMag = Math.hypot(tvx, tvy);
 
   if (mode === 'lead' && tvMag > 1e-3) {
-    // Solve |T - P + vT * t| = pVel * t for smallest positive t
+    // Solve |T - P + vT * t| = pVel * t for smallest positive t (geometric intercept)
     const a = tvx * tvx + tvy * tvy - pVel * pVel;
     const b = 2 * (dx * tvx + dy * tvy);
     const c = dx * dx + dy * dy;
@@ -383,21 +400,18 @@ function pursuerVelAngle(mode, alpha, pVel) {
       const aimY = state.ty + tvy * t;
       return Math.atan2(aimY - state.py, aimX - state.px);
     }
-    // Pursuer slower or no positive root: fall back to pure pursuit
     return losAngle;
   }
 
-  if (mode === 'lag' && tvMag > 1e-3) {
-    // Aim point behind target along its motion. Lag distance scales with α and range.
-    const range = Math.hypot(dx, dy);
-    const lagDist = range * Math.tan(alpha);
-    const ux = tvx / tvMag, uy = tvy / tvMag;
-    const aimX = state.tx - ux * lagDist;
-    const aimY = state.ty - uy * lagDist;
-    return Math.atan2(aimY - state.py, aimX - state.px);
+  if (mode === 'lag') {
+    const carrot = carrotPos();
+    if (carrot) return Math.atan2(carrot.y - state.py, carrot.x - state.px);
+    return losAngle;
   }
 
-  // Pure / classical deviation
+  if (mode === 'lagdirect') return losAngle;
+
+  // Pure / direct pursuit (α deviation)
   return losAngle - alpha;
 }
 
@@ -447,7 +461,7 @@ function paramSpeed(t, pattern) {
 }
 
 function isParametric(pattern) {
-  return !['bounce', 'random', 'stopgo', 'static'].includes(pattern);
+  return !['bounce', 'random', 'stopgo'].includes(pattern);
 }
 
 function patternStart(pattern) {
@@ -515,7 +529,7 @@ function s2w(sx, sy) {
 
 // ===== Sim =====
 function resetSim() {
-  const { pattern } = getParams();
+  const { pattern, tVel } = getParams();
   const start = patternStart(pattern);
   simT = 0;
   targetT = 0;
@@ -525,10 +539,30 @@ function resetSim() {
   prevRange = null;
   pTrail = [];
   tTrail = [];
+  aimOffset = 120;
   tOrigin = { x: start.x, y: start.y };
   const heading = -0.5;
   tStateful = { heading, vx: Math.cos(heading), vy: Math.sin(heading), phase: 0 };
   state = { px: 60, py: H * 0.75, tx: start.x, ty: start.y, tvx: 0, tvy: 0, velAngle: 0 };
+
+  // Seed initial target velocity so the carrot is positioned correctly on frame 0.
+  if (isParametric(pattern)) {
+    const eps = 0.02;
+    const p0 = paramPos(0, pattern);
+    const p1 = paramPos(eps, pattern);
+    const dx = (p1.x - p0.x) / eps;
+    const dy = (p1.y - p0.y) / eps;
+    const mag = Math.hypot(dx, dy);
+    if (mag > 1e-3) { state.tvx = (dx / mag) * tVel; state.tvy = (dy / mag) * tVel; }
+  } else if (pattern === 'bounce') {
+    state.tvx = tStateful.vx * tVel;
+    state.tvy = tStateful.vy * tVel;
+  } else if (pattern === 'random') {
+    state.tvx = Math.cos(tStateful.heading) * tVel;
+    state.tvy = Math.sin(tStateful.heading) * tVel;
+  }
+  // stopgo starts at rest (sin(0) = 0); leaves tvx/tvy = 0 → carrot hides until motion begins
+
   const s = document.getElementById('st-status');
   s.textContent = 'paused'; s.style.color = '';
   paused = true;
@@ -563,7 +597,6 @@ function updateTarget(dt, tVel, pattern) {
     const scale = Math.max(0, Math.sin(tStateful.phase * 1.6));
     state.tx += scale * tVel * dt;
   }
-  // static: do nothing
 }
 
 function step(dt) {
@@ -799,6 +832,50 @@ function drawTangentLine(sx, sy, angle, color, alpha) {
   ctx.restore();
 }
 
+function drawCarrot() {
+  const carrot = carrotPos();
+  if (!carrot) return;
+  const sc = w2s(carrot.x, carrot.y);
+  const st = w2s(state.tx, state.ty);
+  ctx.save();
+  ctx.strokeStyle = '#9a9a9a';
+  ctx.globalAlpha = 0.55;
+  ctx.lineWidth = 1.25;
+  ctx.setLineDash([4, 3]);
+  ctx.beginPath();
+  ctx.moveTo(st.x, st.y);
+  ctx.lineTo(sc.x, sc.y);
+  ctx.stroke();
+  ctx.restore();
+
+  const isHover = (hovered === 'carrot' || dragging === 'carrot');
+  ctx.save();
+  if (isHover) {
+    ctx.beginPath();
+    ctx.arc(sc.x, sc.y, 13, 0, Math.PI * 2);
+    ctx.strokeStyle = '#D85A30';
+    ctx.globalAlpha = 0.4;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+  }
+  ctx.fillStyle = '#D85A30';
+  ctx.globalAlpha = 0.95;
+  ctx.beginPath();
+  ctx.arc(sc.x, sc.y, 6.5, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#5a2410';
+  ctx.lineWidth = 1;
+  ctx.globalAlpha = 0.55;
+  ctx.stroke();
+  ctx.fillStyle = '#5a2410';
+  ctx.globalAlpha = 0.85;
+  ctx.font = '600 9px system-ui, sans-serif';
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.fillText(Math.round(aimOffset), sc.x, sc.y - 16);
+  ctx.restore();
+}
+
 function drawAgentScreen(x, y, color, ringColor, label, labelColor, radius, highlight) {
   ctx.save();
   if (highlight) {
@@ -866,10 +943,11 @@ function render() {
   }
 
   drawRulerScreen(sp.x, sp.y, st.x, st.y, range);
+  drawCarrot();
   if (opts.vec) {
     drawArrowScreen(sp.x, sp.y, sp.x + 52 * Math.cos(velAngle), sp.y + 52 * Math.sin(velAngle), '#185FA5', 2.5);
   }
-  drawAngleArcScreen(sp.x, sp.y, losAngle, velAngle);
+  if (mode === 'pure') drawAngleArcScreen(sp.x, sp.y, losAngle, velAngle);
 
   drawAgentScreen(st.x, st.y, '#EF9F27', '#7a4a06', 'T', '#3b2105', 11, hovered === 't' || dragging === 't');
   drawAgentScreen(sp.x, sp.y, '#378ADD', '#0e3e72', 'P', '#E6F1FB', 9, hovered === 'p' || dragging === 'p');
@@ -946,6 +1024,16 @@ document.getElementById('simSpeed').addEventListener('input', e => {
 });
 document.getElementById('pattern').addEventListener('change', resetSim);
 
+function syncModeUI() {
+  const mode = document.getElementById('mode').value;
+  document.getElementById('alphaCtrl').style.display = (mode === 'pure') ? '' : 'none';
+}
+document.getElementById('mode').addEventListener('change', () => {
+  syncModeUI();
+  resetSim();
+});
+syncModeUI();
+
 document.querySelectorAll('.check input').forEach(input => {
   input.addEventListener('change', () => {
     const key = input.parentElement.dataset.toggle;
@@ -973,13 +1061,28 @@ function pointerWorld(e) {
 }
 
 function hitTest(wpos) {
-  // Hit radius in screen pixels — convert to world.
   const hitR = 18 / cam.zoom;
+  const carrot = carrotPos();
+  if (carrot) {
+    const dC = Math.hypot(wpos.x - carrot.x, wpos.y - carrot.y);
+    if (dC < hitR) return 'carrot';
+  }
   const dT = Math.hypot(wpos.x - state.tx, wpos.y - state.ty);
   const dP = Math.hypot(wpos.x - state.px, wpos.y - state.py);
   if (dT < hitR && dT <= dP) return 't';
   if (dP < hitR) return 'p';
   return null;
+}
+
+function dragCarrotTo(wpos) {
+  const tvx = state.tvx || 0, tvy = state.tvy || 0;
+  const tvMag = Math.hypot(tvx, tvy);
+  if (tvMag < 1e-3) return;
+  const ux = tvx / tvMag, uy = tvy / tvMag;
+  const dx = wpos.x - state.tx, dy = wpos.y - state.ty;
+  // Lag only: carrot is behind T (negative projection along vT).
+  const proj = dx * ux + dy * uy;
+  aimOffset = Math.max(20, Math.min(2000, -proj));
 }
 
 function rebaseTargetPathFromCurrent() {
@@ -1005,6 +1108,7 @@ canvas.addEventListener('mousemove', e => {
   const wpos = pointerWorld(e);
   if (dragging === 'p') { state.px = wpos.x; state.py = wpos.y; captured = false; escaped = false; }
   else if (dragging === 't') { state.tx = wpos.x; state.ty = wpos.y; captured = false; escaped = false; }
+  else if (dragging === 'carrot') { dragCarrotTo(wpos); }
   else {
     hovered = hitTest(wpos);
     canvas.style.cursor = hovered ? 'grab' : 'default';
@@ -1028,6 +1132,7 @@ canvas.addEventListener('touchmove', e => {
   const wpos = pointerWorld(e);
   if (dragging === 'p') { state.px = wpos.x; state.py = wpos.y; captured = false; escaped = false; }
   else if (dragging === 't') { state.tx = wpos.x; state.ty = wpos.y; captured = false; escaped = false; }
+  else if (dragging === 'carrot') { dragCarrotTo(wpos); }
   e.preventDefault();
 }, { passive: false });
 canvas.addEventListener('touchend', () => {
